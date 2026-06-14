@@ -166,6 +166,7 @@ func (s *BatchService) processJob(jobID uint) {
 	}
 
 	var results []model.BatchItemResult
+	var createdIDs []uint
 	successCount := 0
 	failCount := 0
 
@@ -180,6 +181,7 @@ func (s *BatchService) processJob(jobID uint) {
 			})
 		} else {
 			successCount++
+			createdIDs = append(createdIDs, created.ID)
 			results = append(results, model.BatchItemResult{
 				URL:       req.URL,
 				ShortCode: created.ShortCode,
@@ -192,20 +194,33 @@ func (s *BatchService) processJob(jobID uint) {
 		}
 	}
 
+	// Rollback: if any failures occurred, delete all successfully created links
+	if failCount > 0 && len(createdIDs) > 0 {
+		for _, id := range createdIDs {
+			s.linkSvc.ForceDelete(id)
+		}
+		// Mark all as rolled back in results
+		for i := range results {
+			if results[i].Success {
+				results[i].Success = false
+				results[i].Error = "rolled back due to other failures in batch"
+			}
+		}
+		successCount = 0
+	}
+
 	resultsJSON, _ := json.Marshal(results)
 	now := time.Now()
 	job.ProcessedItems = len(links)
 	job.SuccessCount = successCount
-	job.FailCount = failCount
+	job.FailCount = len(links) - successCount
 	job.ErrorJSON = string(resultsJSON)
 	job.CompletedAt = &now
 
 	if failCount == 0 {
 		job.Status = model.BatchStatusCompleted
-	} else if successCount == 0 {
-		job.Status = model.BatchStatusFailed
 	} else {
-		job.Status = model.BatchStatusPartial
+		job.Status = model.BatchStatusFailed
 	}
 
 	s.batchRepo.Update(job)

@@ -37,7 +37,8 @@ func (h *AnalyticsHandler) Summary(c *gin.Context) {
 	}
 
 	from, to := parseTimeRange(c)
-	summary, err := h.analyticsSvc.GetSummary(uint(linkID), from, to)
+	filter := parseFilter(c)
+	summary, err := h.analyticsSvc.GetSummary(uint(linkID), from, to, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
 		return
@@ -61,7 +62,9 @@ func (h *AnalyticsHandler) Timeseries(c *gin.Context) {
 
 	from, to := parseTimeRange(c)
 	granularity := c.DefaultQuery("granularity", "day")
-	points, err := h.analyticsSvc.GetTimeseries(uint(linkID), from, to, granularity)
+	timezone := c.DefaultQuery("timezone", "UTC")
+	filter := parseFilter(c)
+	points, err := h.analyticsSvc.GetTimeseries(uint(linkID), from, to, granularity, timezone, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
 		return
@@ -85,7 +88,8 @@ func (h *AnalyticsHandler) Referers(c *gin.Context) {
 
 	from, to := parseTimeRange(c)
 	limit := getIntQuery(c, "limit", 20)
-	items, err := h.analyticsSvc.GetReferers(uint(linkID), from, to, limit)
+	filter := parseFilter(c)
+	items, err := h.analyticsSvc.GetReferers(uint(linkID), from, to, limit, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
 		return
@@ -108,13 +112,14 @@ func (h *AnalyticsHandler) Devices(c *gin.Context) {
 	}
 
 	from, to := parseTimeRange(c)
-	devices, err := h.analyticsSvc.GetDevices(uint(linkID), from, to)
+	filter := parseFilter(c)
+	devices, err := h.analyticsSvc.GetDevices(uint(linkID), from, to, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
 		return
 	}
 
-	browsers, _ := h.analyticsSvc.GetBrowsers(uint(linkID), from, to, 10)
+	browsers, _ := h.analyticsSvc.GetBrowsers(uint(linkID), from, to, 10, filter)
 	c.JSON(http.StatusOK, model.APIResponse{Code: 200, Message: "ok", Data: gin.H{
 		"devices":  devices,
 		"browsers": browsers,
@@ -136,7 +141,8 @@ func (h *AnalyticsHandler) Geo(c *gin.Context) {
 
 	from, to := parseTimeRange(c)
 	limit := getIntQuery(c, "limit", 50)
-	items, err := h.analyticsSvc.GetGeo(uint(linkID), from, to, limit)
+	filter := parseFilter(c)
+	items, err := h.analyticsSvc.GetGeo(uint(linkID), from, to, limit, filter)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
 		return
@@ -189,6 +195,13 @@ func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
 	}
 
 	return from, to
+}
+
+func parseFilter(c *gin.Context) model.AnalyticsFilter {
+	return model.AnalyticsFilter{
+		ExcludeBot: c.Query("exclude_bot") == "true" || c.Query("exclude_bot") == "1",
+		UniqueOnly: c.Query("unique_only") == "true" || c.Query("unique_only") == "1",
+	}
 }
 
 func getIntQuery(c *gin.Context, key string, defaultVal int) int {

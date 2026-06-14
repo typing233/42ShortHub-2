@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"fmt"
+	"log"
+	"net"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/oschwald/geoip2-golang"
 
 	"github.com/42ShortHub/shortlink/internal/cache"
 	"github.com/42ShortHub/shortlink/internal/config"
@@ -20,6 +24,7 @@ type AnalyticsService struct {
 	linkRepo      *repository.LinkRepo
 	cache         *cache.RedisCache
 	cfg           *config.Config
+	geoReader     *geoip2.Reader
 }
 
 func NewAnalyticsService(
@@ -28,11 +33,29 @@ func NewAnalyticsService(
 	rc *cache.RedisCache,
 	cfg *config.Config,
 ) *AnalyticsService {
-	return &AnalyticsService{
+	svc := &AnalyticsService{
 		accessLogRepo: accessLogRepo,
 		linkRepo:      linkRepo,
 		cache:         rc,
 		cfg:           cfg,
+	}
+
+	if cfg.Analytics.GeoIPDBPath != "" {
+		reader, err := geoip2.Open(cfg.Analytics.GeoIPDBPath)
+		if err != nil {
+			log.Printf("[analytics] WARNING: failed to open GeoIP DB at %s: %v (geo lookup disabled)", cfg.Analytics.GeoIPDBPath, err)
+		} else {
+			svc.geoReader = reader
+			log.Printf("[analytics] GeoIP DB loaded: %s", cfg.Analytics.GeoIPDBPath)
+		}
+	}
+
+	return svc
+}
+
+func (s *AnalyticsService) Close() {
+	if s.geoReader != nil {
+		s.geoReader.Close()
 	}
 }
 
@@ -82,42 +105,57 @@ func (s *AnalyticsService) GetRealtime(linkID uint, minutes int) int64 {
 	return total
 }
 
-func (s *AnalyticsService) GetSummary(linkID uint, from, to time.Time) (*model.AnalyticsSummary, error) {
-	return s.accessLogRepo.Summary(linkID, from, to)
+func (s *AnalyticsService) GetSummary(linkID uint, from, to time.Time, filter model.AnalyticsFilter) (*model.AnalyticsSummary, error) {
+	return s.accessLogRepo.Summary(linkID, from, to, filter)
 }
 
-func (s *AnalyticsService) GetTimeseries(linkID uint, from, to time.Time, granularity string) ([]model.TimeseriesPoint, error) {
-	return s.accessLogRepo.Timeseries(linkID, from, to, granularity)
+func (s *AnalyticsService) GetTimeseries(linkID uint, from, to time.Time, granularity, timezone string, filter model.AnalyticsFilter) ([]model.TimeseriesPoint, error) {
+	return s.accessLogRepo.Timeseries(linkID, from, to, granularity, timezone, filter)
 }
 
-func (s *AnalyticsService) GetReferers(linkID uint, from, to time.Time, limit int) ([]model.BreakdownItem, error) {
-	return s.accessLogRepo.RefererBreakdown(linkID, from, to, limit)
+func (s *AnalyticsService) GetReferers(linkID uint, from, to time.Time, limit int, filter model.AnalyticsFilter) ([]model.BreakdownItem, error) {
+	return s.accessLogRepo.RefererBreakdown(linkID, from, to, limit, filter)
 }
 
-func (s *AnalyticsService) GetDevices(linkID uint, from, to time.Time) ([]model.BreakdownItem, error) {
-	return s.accessLogRepo.DeviceBreakdown(linkID, from, to)
+func (s *AnalyticsService) GetDevices(linkID uint, from, to time.Time, filter model.AnalyticsFilter) ([]model.BreakdownItem, error) {
+	return s.accessLogRepo.DeviceBreakdown(linkID, from, to, filter)
 }
 
-func (s *AnalyticsService) GetBrowsers(linkID uint, from, to time.Time, limit int) ([]model.BreakdownItem, error) {
-	return s.accessLogRepo.BrowserBreakdown(linkID, from, to, limit)
+func (s *AnalyticsService) GetBrowsers(linkID uint, from, to time.Time, limit int, filter model.AnalyticsFilter) ([]model.BreakdownItem, error) {
+	return s.accessLogRepo.BrowserBreakdown(linkID, from, to, limit, filter)
 }
 
-func (s *AnalyticsService) GetGeo(linkID uint, from, to time.Time, limit int) ([]model.GeoItem, error) {
-	return s.accessLogRepo.GeoBreakdown(linkID, from, to, limit)
+func (s *AnalyticsService) GetGeo(linkID uint, from, to time.Time, limit int, filter model.AnalyticsFilter) ([]model.GeoItem, error) {
+	return s.accessLogRepo.GeoBreakdown(linkID, from, to, limit, filter)
 }
 
 func (s *AnalyticsService) detectBot(ua string) bool {
 	return botPatterns.MatchString(ua)
 }
 
-func (s *AnalyticsService) lookupGeo(ip string) (country, city string) {
-	// GeoIP lookup is optional; return empty if no DB configured
-	// In production, integrate MaxMind GeoLite2:
-	//   reader, _ := geoip2.Open(s.cfg.Analytics.GeoIPDBPath)
-	//   record, _ := reader.City(net.ParseIP(ip))
-	//   country = record.Country.IsoCode
-	//   city = record.City.Names["en"]
-	return "", ""
+func (s *AnalyticsService) lookupGeo(ipStr string) (country, city string) {
+	if s.geoReader == nil {
+		return "", ""
+	}
+
+	ip := net.ParseIP(ipStr)
+	if ip == nil {
+		return "", ""
+	}
+
+	record, err := s.geoReader.City(ip)
+	if err != nil {
+		return "", ""
+	}
+
+	country = record.Country.IsoCode
+	if name, ok := record.City.Names["en"]; ok {
+		city = name
+	} else if name, ok := record.City.Names["zh-CN"]; ok {
+		city = name
+	}
+
+	return country, city
 }
 
 func parseUserAgent(ua string) (deviceType, browser, os string) {

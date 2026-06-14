@@ -74,11 +74,11 @@ func main() {
 
 	// Handlers
 	authHandler := handler.NewAuthHandler(authSvc)
-	linkHandler := handler.NewLinkHandler(linkSvc, qrSvc)
+	linkHandler := handler.NewLinkHandler(linkSvc, qrSvc, auditSvc)
 	pageHandler := handler.NewPageHandler(cfg)
-	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc)
+	apiKeyHandler := handler.NewAPIKeyHandler(apiKeySvc, auditSvc)
 	analyticsHandler := handler.NewAnalyticsHandler(analyticsSvc, linkSvc)
-	batchHandler := handler.NewBatchHandler(batchSvc)
+	batchHandler := handler.NewBatchHandler(batchSvc, auditSvc)
 	adminHandler := handler.NewAdminHandler(userRepo, linkRepo, accessLogRepo, auditSvc, analyticsSvc)
 
 	gin.SetMode(gin.ReleaseMode)
@@ -108,12 +108,12 @@ func main() {
 	authed.Use(middleware.CombinedAuthMiddleware(cfg.JWT.Secret, apiKeySvc))
 	{
 		// Links CRUD
-		authed.POST("/links", auditWrap(auditSvc, model.AuditCreateLink, "link", linkHandler.Create))
+		authed.POST("/links", linkHandler.Create)
 		authed.POST("/links/batch", linkHandler.BatchCreate)
 		authed.GET("/links", linkHandler.List)
 		authed.GET("/links/:id", linkHandler.Get)
-		authed.PUT("/links/:id", auditWrap(auditSvc, model.AuditUpdateLink, "link", linkHandler.Update))
-		authed.DELETE("/links/:id", auditWrap(auditSvc, model.AuditDeleteLink, "link", linkHandler.Delete))
+		authed.PUT("/links/:id", linkHandler.Update)
+		authed.DELETE("/links/:id", linkHandler.Delete)
 		authed.GET("/links/:id/qrcode", linkHandler.QRCode)
 
 		// Analytics
@@ -125,9 +125,9 @@ func main() {
 		authed.GET("/links/:id/analytics/realtime", analyticsHandler.Realtime)
 
 		// API Keys
-		authed.POST("/api-keys", auditWrap(auditSvc, model.AuditCreateKey, "api_key", apiKeyHandler.Create))
+		authed.POST("/api-keys", apiKeyHandler.Create)
 		authed.GET("/api-keys", apiKeyHandler.List)
-		authed.DELETE("/api-keys/:id", auditWrap(auditSvc, model.AuditRevokeKey, "api_key", apiKeyHandler.Revoke))
+		authed.DELETE("/api-keys/:id", apiKeyHandler.Revoke)
 		authed.GET("/api-keys/:id/usage", apiKeyHandler.Usage)
 
 		// Batch operations
@@ -190,6 +190,7 @@ func main() {
 	linkSvc.Shutdown(5 * time.Second)
 	auditSvc.Shutdown()
 	batchSvc.Shutdown()
+	analyticsSvc.Close()
 	fmt.Println("Server stopped")
 }
 
@@ -200,21 +201,6 @@ func requestLogger() gin.HandlerFunc {
 		latency := time.Since(start)
 		if c.Request.URL.Path != "/health" {
 			log.Printf("%s %s %d %v", c.Request.Method, c.Request.URL.Path, c.Writer.Status(), latency)
-		}
-	}
-}
-
-func auditWrap(auditSvc *service.AuditService, action, resource string, handler gin.HandlerFunc) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		handler(c)
-		if c.Writer.Status() < 400 {
-			userID := c.GetUint("user_id")
-			var apiKeyID *uint
-			if id, exists := c.Get("api_key_id"); exists {
-				v := id.(uint)
-				apiKeyID = &v
-			}
-			auditSvc.Record(userID, apiKeyID, action, resource, nil, nil, c.ClientIP())
 		}
 	}
 }

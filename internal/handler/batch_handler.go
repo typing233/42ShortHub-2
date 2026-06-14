@@ -12,10 +12,11 @@ import (
 
 type BatchHandler struct {
 	batchSvc *service.BatchService
+	auditSvc *service.AuditService
 }
 
-func NewBatchHandler(svc *service.BatchService) *BatchHandler {
-	return &BatchHandler{batchSvc: svc}
+func NewBatchHandler(svc *service.BatchService, auditSvc *service.AuditService) *BatchHandler {
+	return &BatchHandler{batchSvc: svc, auditSvc: auditSvc}
 }
 
 func (h *BatchHandler) SubmitAsync(c *gin.Context) {
@@ -37,6 +38,10 @@ func (h *BatchHandler) SubmitAsync(c *gin.Context) {
 		Message: "batch job submitted",
 		Data:    model.BatchJobResponse{JobID: job.ID, Status: job.Status},
 	})
+	h.auditSvc.Record(c.GetUint("user_id"), nil, model.AuditBatchCreate, "batch_job", &job.ID, map[string]interface{}{
+		"total_items": len(req.Links),
+		"type":        "api_batch",
+	}, c.ClientIP())
 }
 
 func (h *BatchHandler) UploadCSV(c *gin.Context) {
@@ -59,6 +64,9 @@ func (h *BatchHandler) UploadCSV(c *gin.Context) {
 		Message: "csv batch job submitted",
 		Data:    model.BatchJobResponse{JobID: job.ID, Status: job.Status},
 	})
+	h.auditSvc.Record(c.GetUint("user_id"), nil, model.AuditBatchCreate, "batch_job", &job.ID, map[string]interface{}{
+		"type": "csv_upload",
+	}, c.ClientIP())
 }
 
 func (h *BatchHandler) ListJobs(c *gin.Context) {

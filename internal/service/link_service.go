@@ -408,7 +408,18 @@ func (s *LinkService) Delete(userID, linkID uint) error {
 	ctx := context.Background()
 	s.cache.Del(ctx, cache.ShortCodeKey(link.ShortCode))
 
-	return s.linkRepo.Delete(linkID, userID)
+	return s.linkRepo.Delete(linkID, link.UserID)
+}
+
+// ForceDelete removes a link without ownership check (used for batch rollback).
+func (s *LinkService) ForceDelete(linkID uint) {
+	link, err := s.linkRepo.FindByID(linkID)
+	if err != nil {
+		return
+	}
+	ctx := context.Background()
+	s.cache.Del(ctx, cache.ShortCodeKey(link.ShortCode))
+	s.linkRepo.Delete(linkID, link.UserID)
 }
 
 func (s *LinkService) List(userID uint, query model.LinkListQuery) (*model.PaginatedResponse, error) {

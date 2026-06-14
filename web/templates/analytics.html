@@ -32,6 +32,17 @@
                         <option value="hour">按小时</option>
                         <option value="week">按周</option>
                     </select>
+                    <select id="timezone" onchange="loadAll()">
+                        <option value="UTC">UTC</option>
+                        <option value="Asia/Shanghai">亚洲/上海</option>
+                        <option value="Asia/Tokyo">亚洲/东京</option>
+                        <option value="America/New_York">美东</option>
+                        <option value="America/Los_Angeles">美西</option>
+                        <option value="Europe/London">伦敦</option>
+                        <option value="Europe/Berlin">柏林</option>
+                    </select>
+                    <label class="filter-label"><input type="checkbox" id="excludeBot" onchange="loadAll()"> 排除机器人</label>
+                    <label class="filter-label"><input type="checkbox" id="uniqueOnly" onchange="loadAll()"> 仅独立访客</label>
                 </div>
             </div>
 

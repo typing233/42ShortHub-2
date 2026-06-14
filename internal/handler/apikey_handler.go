@@ -12,10 +12,11 @@ import (
 
 type APIKeyHandler struct {
 	apiKeySvc *service.APIKeyService
+	auditSvc  *service.AuditService
 }
 
-func NewAPIKeyHandler(svc *service.APIKeyService) *APIKeyHandler {
-	return &APIKeyHandler{apiKeySvc: svc}
+func NewAPIKeyHandler(svc *service.APIKeyService, auditSvc *service.AuditService) *APIKeyHandler {
+	return &APIKeyHandler{apiKeySvc: svc, auditSvc: auditSvc}
 }
 
 func (h *APIKeyHandler) Create(c *gin.Context) {
@@ -40,6 +41,10 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 			APIKey: *key,
 		},
 	})
+	h.auditSvc.Record(userID, nil, model.AuditCreateKey, "api_key", &key.ID, map[string]interface{}{
+		"name":   key.Name,
+		"prefix": key.Prefix,
+	}, c.ClientIP())
 }
 
 func (h *APIKeyHandler) List(c *gin.Context) {
@@ -72,6 +77,8 @@ func (h *APIKeyHandler) Revoke(c *gin.Context) {
 		return
 	}
 
+	rid := uint(id)
+	h.auditSvc.Record(userID, nil, model.AuditRevokeKey, "api_key", &rid, nil, c.ClientIP())
 	c.JSON(http.StatusOK, model.APIResponse{Code: 200, Message: "api key revoked"})
 }
 

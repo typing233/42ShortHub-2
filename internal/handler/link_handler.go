@@ -13,10 +13,11 @@ import (
 type LinkHandler struct {
 	linkSvc  *service.LinkService
 	qrSvc    *service.QRCodeService
+	auditSvc *service.AuditService
 }
 
-func NewLinkHandler(linkSvc *service.LinkService, qrSvc *service.QRCodeService) *LinkHandler {
-	return &LinkHandler{linkSvc: linkSvc, qrSvc: qrSvc}
+func NewLinkHandler(linkSvc *service.LinkService, qrSvc *service.QRCodeService, auditSvc *service.AuditService) *LinkHandler {
+	return &LinkHandler{linkSvc: linkSvc, qrSvc: qrSvc, auditSvc: auditSvc}
 }
 
 func (h *LinkHandler) Create(c *gin.Context) {
@@ -40,6 +41,10 @@ func (h *LinkHandler) Create(c *gin.Context) {
 		return
 	}
 
+	h.audit(c, model.AuditCreateLink, "link", &link.ID, map[string]interface{}{
+		"short_code":   link.ShortCode,
+		"original_url": link.OriginalURL,
+	})
 	c.JSON(http.StatusCreated, model.APIResponse{Code: 201, Message: "created", Data: link})
 }
 
@@ -52,6 +57,11 @@ func (h *LinkHandler) BatchCreate(c *gin.Context) {
 	}
 
 	links, errs := h.linkSvc.BatchCreate(userID, req)
+	h.audit(c, model.AuditBatchCreate, "link", nil, map[string]interface{}{
+		"total_requested": len(req.Links),
+		"created":         len(links),
+		"errors":          len(errs),
+	})
 	result := gin.H{"created": links, "errors": formatErrors(errs)}
 	c.JSON(http.StatusOK, model.APIResponse{Code: 200, Message: "batch complete", Data: result})
 }
@@ -93,6 +103,11 @@ func (h *LinkHandler) Update(c *gin.Context) {
 		return
 	}
 
+	rid := uint(id)
+	h.audit(c, model.AuditUpdateLink, "link", &rid, map[string]interface{}{
+		"short_code": link.ShortCode,
+		"changes":    req,
+	})
 	c.JSON(http.StatusOK, model.APIResponse{Code: 200, Message: "updated", Data: link})
 }
 
@@ -109,6 +124,8 @@ func (h *LinkHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	rid := uint(id)
+	h.audit(c, model.AuditDeleteLink, "link", &rid, nil)
 	c.JSON(http.StatusOK, model.APIResponse{Code: 200, Message: "deleted"})
 }
 
@@ -215,4 +232,17 @@ func (h *LinkHandler) QRCode(c *gin.Context) {
 		c.Header("Content-Disposition", "attachment; filename=\""+link.ShortCode+".png\"")
 		c.Data(http.StatusOK, "image/png", data)
 	}
+}
+
+func (h *LinkHandler) audit(c *gin.Context, action, resource string, resourceID *uint, detail interface{}) {
+	if h.auditSvc == nil {
+		return
+	}
+	userID := c.GetUint("user_id")
+	var apiKeyID *uint
+	if id, exists := c.Get("api_key_id"); exists {
+		v := id.(uint)
+		apiKeyID = &v
+	}
+	h.auditSvc.Record(userID, apiKeyID, action, resource, resourceID, detail, c.ClientIP())
 }

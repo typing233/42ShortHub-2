@@ -25,9 +25,21 @@ function getTimeRange() {
     return { from, to };
 }
 
+function getTimezone() {
+    return document.getElementById('timezone').value || 'UTC';
+}
+
+function getFilterParams() {
+    let params = '';
+    if (document.getElementById('excludeBot').checked) params += '&exclude_bot=true';
+    if (document.getElementById('uniqueOnly').checked) params += '&unique_only=true';
+    return params;
+}
+
 async function loadSummary() {
     const { from, to } = getTimeRange();
-    const data = await apiFetch(`/links/${LINK_ID}/analytics?from=${from}&to=${to}`);
+    const filter = getFilterParams();
+    const data = await apiFetch(`/links/${LINK_ID}/analytics?from=${from}&to=${to}${filter}`);
     if (!data || !data.data) return;
     const s = data.data;
     document.getElementById('totalClicks').textContent = s.total_clicks.toLocaleString();
@@ -44,7 +56,9 @@ async function loadRealtime() {
 async function loadTimeseries() {
     const { from, to } = getTimeRange();
     const g = document.getElementById('granularity').value;
-    const data = await apiFetch(`/links/${LINK_ID}/analytics/timeseries?from=${from}&to=${to}&granularity=${g}`);
+    const tz = getTimezone();
+    const filter = getFilterParams();
+    const data = await apiFetch(`/links/${LINK_ID}/analytics/timeseries?from=${from}&to=${to}&granularity=${g}&timezone=${tz}${filter}`);
     if (!data || !data.data) return;
 
     const points = data.data || [];
@@ -71,7 +85,8 @@ async function loadTimeseries() {
 
 async function loadDevices() {
     const { from, to } = getTimeRange();
-    const data = await apiFetch(`/links/${LINK_ID}/analytics/devices?from=${from}&to=${to}`);
+    const filter = getFilterParams();
+    const data = await apiFetch(`/links/${LINK_ID}/analytics/devices?from=${from}&to=${to}${filter}`);
     if (!data || !data.data) return;
 
     const devices = data.data.devices || [];
@@ -102,7 +117,8 @@ async function loadDevices() {
 
 async function loadReferers() {
     const { from, to } = getTimeRange();
-    const data = await apiFetch(`/links/${LINK_ID}/analytics/referers?from=${from}&to=${to}&limit=10`);
+    const filter = getFilterParams();
+    const data = await apiFetch(`/links/${LINK_ID}/analytics/referers?from=${from}&to=${to}&limit=10${filter}`);
     if (!data || !data.data) return;
 
     const el = document.getElementById('refererList');
@@ -115,7 +131,8 @@ async function loadReferers() {
 
 async function loadGeo() {
     const { from, to } = getTimeRange();
-    const data = await apiFetch(`/links/${LINK_ID}/analytics/geo?from=${from}&to=${to}&limit=20`);
+    const filter = getFilterParams();
+    const data = await apiFetch(`/links/${LINK_ID}/analytics/geo?from=${from}&to=${to}&limit=20${filter}`);
     if (!data || !data.data) return;
 
     const el = document.getElementById('geoList');

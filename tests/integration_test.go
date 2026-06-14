@@ -71,7 +71,9 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	authHandler := handler.NewAuthHandler(authSvc)
 	qrSvc := service.NewQRCodeService(cfg)
-	linkHandler := handler.NewLinkHandler(linkSvc, qrSvc)
+	auditSvc := service.NewAuditService(repository.NewAuditLogRepo(db))
+	auditSvc.Start(1)
+	linkHandler := handler.NewLinkHandler(linkSvc, qrSvc, auditSvc)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

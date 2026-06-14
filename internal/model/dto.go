@@ -141,3 +141,9 @@ type AdminTrafficQuery struct {
 	Days        int    `form:"days,default=30" binding:"min=1,max=90"`
 	Granularity string `form:"granularity,default=day" binding:"omitempty,oneof=hour day"`
 }
+
+// AnalyticsFilter controls what access log entries are included in analytics queries.
+type AnalyticsFilter struct {
+	ExcludeBot bool // if true, filter out is_bot=true entries
+	UniqueOnly bool // if true, only include is_unique=true entries
+}
