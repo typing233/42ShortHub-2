@@ -49,7 +49,7 @@ func main() {
 
 	authSvc := service.NewAuthService(userRepo, cfg)
 	linkSvc := service.NewLinkService(linkRepo, redisCache, cfg)
-	linkSvc.StartLogWorker(accessLogRepo, 4)
+	linkSvc.StartLogWorker(accessLogRepo, 4, "access_log_fallback.tsv")
 
 	authHandler := handler.NewAuthHandler(authSvc)
 	linkHandler := handler.NewLinkHandler(linkSvc)

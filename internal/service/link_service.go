@@ -9,8 +9,10 @@ import (
 	"math/big"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -35,13 +37,14 @@ var (
 const base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 type LinkService struct {
-	linkRepo *repository.LinkRepo
-	cache    *cache.RedisCache
-	cfg      *config.Config
-	logChan  chan model.AccessLog
-	stopCh   chan struct{}
-	wg       sync.WaitGroup
-	dropped  int64
+	linkRepo    *repository.LinkRepo
+	cache       *cache.RedisCache
+	cfg         *config.Config
+	logChan     chan model.AccessLog
+	stopCh      chan struct{}
+	wg          sync.WaitGroup
+	dropped     int64 // atomic; total entries dropped due to full channel
+	failedFile  *os.File
 }
 
 func NewLinkService(linkRepo *repository.LinkRepo, rc *cache.RedisCache, cfg *config.Config) *LinkService {
@@ -55,7 +58,15 @@ func NewLinkService(linkRepo *repository.LinkRepo, rc *cache.RedisCache, cfg *co
 	return svc
 }
 
-func (s *LinkService) StartLogWorker(logRepo *repository.AccessLogRepo, workers int) {
+func (s *LinkService) StartLogWorker(logRepo *repository.AccessLogRepo, workers int, fallbackPath string) {
+	if fallbackPath != "" {
+		f, err := os.OpenFile(fallbackPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+		if err != nil {
+			log.Printf("[access-log] WARNING: cannot open fallback file %s: %v (failed logs will only appear in stderr)", fallbackPath, err)
+		} else {
+			s.failedFile = f
+		}
+	}
 	for i := 0; i < workers; i++ {
 		s.wg.Add(1)
 		go s.logWorker(logRepo)
@@ -75,10 +86,26 @@ func (s *LinkService) Shutdown(timeout time.Duration) {
 
 	select {
 	case <-done:
-		log.Printf("[access-log] graceful shutdown complete")
+		// ok
 	case <-time.After(timeout):
-		log.Printf("[access-log] shutdown timed out, some logs may be lost")
+		log.Printf("[access-log] shutdown timed out, %d buffered logs may be lost", len(s.logChan))
 	}
+
+	totalDropped := atomic.LoadInt64(&s.dropped)
+	if totalDropped > 0 {
+		log.Printf("[access-log] total dropped during this run: %d", totalDropped)
+	}
+
+	if s.failedFile != nil {
+		s.failedFile.Close()
+	}
+
+	log.Printf("[access-log] shutdown complete")
+}
+
+// Dropped returns the total number of access log entries dropped due to a full channel.
+func (s *LinkService) Dropped() int64 {
+	return atomic.LoadInt64(&s.dropped)
 }
 
 func (s *LinkService) logWorker(logRepo *repository.AccessLogRepo) {
@@ -113,7 +140,6 @@ func (s *LinkService) logWorker(logRepo *repository.AccessLogRepo) {
 		case <-ticker.C:
 			flush()
 		case <-s.stopCh:
-			// Drain remaining items in channel before exiting
 			for {
 				select {
 				case logEntry, ok := <-s.logChan:
@@ -144,7 +170,7 @@ func (s *LinkService) writeBatchWithRetry(logRepo *repository.AccessLogRepo, log
 			return
 		}
 
-		log.Printf("[access-log] write failed (attempt %d/%d, batch=%d): %v",
+		log.Printf("[access-log] DB write failed (attempt %d/%d, batch=%d): %v",
 			attempt+1, maxRetries+1, len(logs), err)
 
 		if attempt < maxRetries {
@@ -153,11 +179,37 @@ func (s *LinkService) writeBatchWithRetry(logRepo *repository.AccessLogRepo, log
 		}
 	}
 
-	log.Printf("[access-log] DROPPED %d records after %d retries", len(logs), maxRetries+1)
+	// All retries exhausted — write to fallback file so records are recoverable
+	s.writeToFallback(logs)
+}
+
+func (s *LinkService) writeToFallback(logs []model.AccessLog) {
+	for _, entry := range logs {
+		line := fmt.Sprintf("%s\t%d\t%s\t%s\t%s\n",
+			entry.AccessedAt.Format(time.RFC3339), entry.ShortLinkID,
+			entry.IP, entry.UserAgent, entry.Referer)
+
+		if s.failedFile != nil {
+			s.failedFile.WriteString(line)
+		}
+		// Always emit to stderr so ops can see it even without the fallback file
+		fmt.Fprintf(os.Stderr, "[access-log] FAILED_RECORD: %s", line)
+	}
+	log.Printf("[access-log] DROPPED_TO_FALLBACK: %d records written to fallback after DB retries exhausted", len(logs))
 }
 
 // RecordAccess enqueues an access log entry without blocking the caller.
-// If the internal buffer is full, the entry is dropped and a warning is logged.
+// If the internal buffer is full, the entry is dropped (counter incremented atomically)
+// and a periodic warning is logged.
+//
+// Situations where access logs may still be lost:
+//   - Channel is full AND fallback file is not configured: entry is dropped entirely.
+//   - Service killed with SIGKILL (no graceful shutdown): buffered entries in channel are lost.
+//   - Shutdown timeout exceeded: remaining buffered entries may be lost.
+//   - Fallback file disk is full: writes silently fail.
+//
+// In all cases the dropped counter (exposed via Dropped()) reflects channel-full drops,
+// and stderr/fallback-file captures DB-failure drops.
 func (s *LinkService) RecordAccess(linkID uint, ip, ua, referer string) {
 	entry := model.AccessLog{
 		ShortLinkID: linkID,
@@ -170,9 +222,9 @@ func (s *LinkService) RecordAccess(linkID uint, ip, ua, referer string) {
 	select {
 	case s.logChan <- entry:
 	default:
-		s.dropped++
-		if s.dropped%1000 == 1 {
-			log.Printf("[access-log] WARNING: channel full, dropped log (total dropped: %d)", s.dropped)
+		n := atomic.AddInt64(&s.dropped, 1)
+		if n == 1 || n%1000 == 0 {
+			log.Printf("[access-log] WARNING: channel full, entry dropped (total dropped: %d)", n)
 		}
 	}
 }

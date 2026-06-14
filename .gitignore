@@ -1,3 +1,4 @@
 .env
 bin/
 *.exe
+access_log_fallback.tsv

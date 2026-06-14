@@ -1,6 +1,8 @@
 package service
 
 import (
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -144,7 +146,37 @@ func TestRecordAccess_NonBlocking(t *testing.T) {
 		t.Fatal("RecordAccess blocked when channel was full")
 	}
 
-	if svc.dropped != 1 {
-		t.Errorf("expected 1 dropped, got %d", svc.dropped)
+	if svc.Dropped() != 1 {
+		t.Errorf("expected 1 dropped, got %d", svc.Dropped())
+	}
+}
+
+func TestRecordAccess_ConcurrentDropCount(t *testing.T) {
+	cfg := &config.Config{App: config.AppConfig{ShortCodeLen: 6}}
+	svc := &LinkService{
+		cfg:     cfg,
+		logChan: make(chan model.AccessLog, 0), // zero capacity: every send drops
+		stopCh:  make(chan struct{}),
+	}
+
+	const goroutines = 50
+	const perGoroutine = 200
+
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for i := 0; i < goroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < perGoroutine; j++ {
+				svc.RecordAccess(1, "1.1.1.1", "ua", "ref")
+			}
+		}()
+	}
+	wg.Wait()
+
+	expected := int64(goroutines * perGoroutine)
+	got := atomic.LoadInt64(&svc.dropped)
+	if got != expected {
+		t.Errorf("expected dropped=%d, got %d (race condition in counter?)", expected, got)
 	}
 }

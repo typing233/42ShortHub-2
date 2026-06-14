@@ -67,7 +67,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 
 	authSvc := service.NewAuthService(userRepo, cfg)
 	linkSvc := service.NewLinkService(linkRepo, redisCache, cfg)
-	linkSvc.StartLogWorker(accessLogRepo, 2)
+	linkSvc.StartLogWorker(accessLogRepo, 2, "")
 
 	authHandler := handler.NewAuthHandler(authSvc)
 	linkHandler := handler.NewLinkHandler(linkSvc)

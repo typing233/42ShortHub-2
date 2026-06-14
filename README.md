@@ -46,9 +46,32 @@ go run ./cmd/server
 
 ### 运行测试
 
+项目有三个测试层级：
+
 ```bash
-go test ./... -v
+# 1. 单元测试 —— 无外部依赖，随时可跑
+make test-unit
+
+# 2. 集成测试 —— 需要 PostgreSQL + Redis
+#    先启动依赖：
+make docker-deps
+#    然后运行：
+make test-integration
+
+# 3. Docker 全链路 E2E 冒烟测试 —— 自动 build 镜像并验证 10 个检查点
+make test-e2e
+
+# 全部（单元 + 集成，需依赖运行中）：
+make test
 ```
+
+| 层级 | 命令 | 外部依赖 | 位置 |
+|------|------|----------|------|
+| 单元测试 | `make test-unit` | 无 | `internal/*/...` |
+| 集成测试 | `make test-integration` | PG + Redis | `tests/integration_test.go` |
+| E2E 冒烟 | `make test-e2e` | Docker Compose | `tests/e2e_docker_test.sh` |
+
+> 没有外部依赖时，集成测试会自动 `t.Skip`，不会报错。
 
 ## API 文档
 
@@ -150,3 +173,22 @@ web/
 ### 异步日志写入
 
 跳转时将访问记录投入 buffered channel（容量 10000），由 4 个 goroutine 消费者批量写入数据库（每 100 条或每 2 秒刷盘），不阻塞 301 响应。
+
+**可靠性保证：**
+
+| 场景 | 处理方式 |
+|------|----------|
+| 数据库临时不可用 | 指数退避重试 3 次（500ms → 1s → 2s） |
+| 重试全部失败 | 写入本地 fallback 文件 (`access_log_fallback.tsv`) + stderr 输出，不会无声丢失 |
+| 服务正常退出 (SIGTERM/SIGINT) | 先 drain channel 中所有缓冲记录再退出 |
+| Channel 满（极端高并发） | 丢弃新条目，原子计数器计数，每 1000 条打印一次警告 |
+
+**仍可能丢失的情况：**
+
+1. **SIGKILL / OOM Kill**：进程被强制杀死，channel 中未消费的条目丢失（无法避免）
+2. **Shutdown 超时**：如果 5 秒内无法刷完积压，剩余条目丢失
+3. **Fallback 文件磁盘满**：落盘文件写入失败时 stderr 仍会输出，但文件记录不完整
+4. **Channel 满时的丢弃**：高并发超出 channel 容量时直接丢弃（通过 `Dropped()` 方法暴露计数，日志可观测）
+
+> 对于场景 1，建议生产环境配合外部日志收集（如 sidecar / fluentd）兜底。
+
