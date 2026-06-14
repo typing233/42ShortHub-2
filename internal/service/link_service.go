@@ -5,9 +5,12 @@ import (
 	"crypto/rand"
 	"errors"
 	"fmt"
+	"log"
 	"math/big"
+	"net"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,13 +23,13 @@ import (
 )
 
 var (
-	ErrShortCodeExists  = errors.New("short code already exists")
-	ErrLinkNotFound     = errors.New("short link not found")
-	ErrLinkExpired      = errors.New("short link has expired")
-	ErrLinkInactive     = errors.New("short link is inactive")
-	ErrForbidden        = errors.New("no permission to access this resource")
-	ErrInvalidURL       = errors.New("invalid or disallowed URL")
-	ErrBatchTooLarge    = errors.New("batch size exceeds limit")
+	ErrShortCodeExists = errors.New("short code already exists")
+	ErrLinkNotFound    = errors.New("short link not found")
+	ErrLinkExpired     = errors.New("short link has expired")
+	ErrLinkInactive    = errors.New("short link is inactive")
+	ErrForbidden       = errors.New("no permission to access this resource")
+	ErrInvalidURL      = errors.New("invalid or disallowed URL")
+	ErrBatchTooLarge   = errors.New("batch size exceeds limit")
 )
 
 const base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
@@ -36,6 +39,9 @@ type LinkService struct {
 	cache    *cache.RedisCache
 	cfg      *config.Config
 	logChan  chan model.AccessLog
+	stopCh   chan struct{}
+	wg       sync.WaitGroup
+	dropped  int64
 }
 
 func NewLinkService(linkRepo *repository.LinkRepo, rc *cache.RedisCache, cfg *config.Config) *LinkService {
@@ -44,36 +50,135 @@ func NewLinkService(linkRepo *repository.LinkRepo, rc *cache.RedisCache, cfg *co
 		cache:    rc,
 		cfg:      cfg,
 		logChan:  make(chan model.AccessLog, 10000),
+		stopCh:   make(chan struct{}),
 	}
 	return svc
 }
 
 func (s *LinkService) StartLogWorker(logRepo *repository.AccessLogRepo, workers int) {
 	for i := 0; i < workers; i++ {
+		s.wg.Add(1)
 		go s.logWorker(logRepo)
 	}
 }
 
+// Shutdown drains remaining logs and waits for workers to finish.
+// Call this before process exit to ensure buffered logs are persisted.
+func (s *LinkService) Shutdown(timeout time.Duration) {
+	close(s.stopCh)
+
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		log.Printf("[access-log] graceful shutdown complete")
+	case <-time.After(timeout):
+		log.Printf("[access-log] shutdown timed out, some logs may be lost")
+	}
+}
+
 func (s *LinkService) logWorker(logRepo *repository.AccessLogRepo) {
+	defer s.wg.Done()
+
 	batch := make([]model.AccessLog, 0, 100)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
 
+	flush := func() {
+		if len(batch) == 0 {
+			return
+		}
+		toWrite := make([]model.AccessLog, len(batch))
+		copy(toWrite, batch)
+		batch = batch[:0]
+
+		s.writeBatchWithRetry(logRepo, toWrite)
+	}
+
 	for {
 		select {
-		case log := <-s.logChan:
-			batch = append(batch, log)
+		case logEntry, ok := <-s.logChan:
+			if !ok {
+				flush()
+				return
+			}
+			batch = append(batch, logEntry)
 			if len(batch) >= 100 {
-				logRepo.BatchCreate(batch)
-				batch = batch[:0]
+				flush()
 			}
 		case <-ticker.C:
-			if len(batch) > 0 {
-				logRepo.BatchCreate(batch)
-				batch = batch[:0]
+			flush()
+		case <-s.stopCh:
+			// Drain remaining items in channel before exiting
+			for {
+				select {
+				case logEntry, ok := <-s.logChan:
+					if !ok {
+						flush()
+						return
+					}
+					batch = append(batch, logEntry)
+					if len(batch) >= 100 {
+						flush()
+					}
+				default:
+					flush()
+					return
+				}
 			}
 		}
 	}
+}
+
+func (s *LinkService) writeBatchWithRetry(logRepo *repository.AccessLogRepo, logs []model.AccessLog) {
+	maxRetries := 3
+	backoff := 500 * time.Millisecond
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		err := logRepo.BatchCreate(logs)
+		if err == nil {
+			return
+		}
+
+		log.Printf("[access-log] write failed (attempt %d/%d, batch=%d): %v",
+			attempt+1, maxRetries+1, len(logs), err)
+
+		if attempt < maxRetries {
+			time.Sleep(backoff)
+			backoff *= 2
+		}
+	}
+
+	log.Printf("[access-log] DROPPED %d records after %d retries", len(logs), maxRetries+1)
+}
+
+// RecordAccess enqueues an access log entry without blocking the caller.
+// If the internal buffer is full, the entry is dropped and a warning is logged.
+func (s *LinkService) RecordAccess(linkID uint, ip, ua, referer string) {
+	entry := model.AccessLog{
+		ShortLinkID: linkID,
+		IP:          ip,
+		UserAgent:   ua,
+		Referer:     referer,
+		AccessedAt:  time.Now(),
+	}
+
+	select {
+	case s.logChan <- entry:
+	default:
+		s.dropped++
+		if s.dropped%1000 == 1 {
+			log.Printf("[access-log] WARNING: channel full, dropped log (total dropped: %d)", s.dropped)
+		}
+	}
+}
+
+func (s *LinkService) IncrClick(linkID uint) {
+	s.linkRepo.IncrClickCount(linkID)
 }
 
 func (s *LinkService) Create(userID uint, req model.CreateLinkRequest) (*model.ShortLink, error) {
@@ -184,20 +289,6 @@ func (s *LinkService) Resolve(code string) (string, uint, error) {
 	s.cache.Set(ctx, cache.ShortCodeKey(code), link.OriginalURL, ttl)
 
 	return link.OriginalURL, link.ID, nil
-}
-
-func (s *LinkService) RecordAccess(linkID uint, ip, ua, referer string) {
-	s.logChan <- model.AccessLog{
-		ShortLinkID: linkID,
-		IP:          ip,
-		UserAgent:   ua,
-		Referer:     referer,
-		AccessedAt:  time.Now(),
-	}
-}
-
-func (s *LinkService) IncrClick(linkID uint) {
-	s.linkRepo.IncrClickCount(linkID)
 }
 
 func (s *LinkService) Update(userID uint, linkID uint, req model.UpdateLinkRequest) (*model.ShortLink, error) {
@@ -331,12 +422,75 @@ func (s *LinkService) validateURL(rawURL string) error {
 		return ErrInvalidURL
 	}
 
-	blocked := []string{"localhost", "127.0.0.1", "0.0.0.0", "::1"}
-	host := strings.Split(u.Host, ":")[0]
-	for _, b := range blocked {
-		if strings.EqualFold(host, b) {
+	host := u.Hostname()
+
+	if strings.EqualFold(host, "localhost") {
+		return ErrInvalidURL
+	}
+
+	ip := net.ParseIP(host)
+	if ip != nil {
+		if isPrivateOrReservedIP(ip) {
 			return ErrInvalidURL
 		}
+		return nil
 	}
+
+	// Resolve hostname to check if it points to a private IP
+	addrs, err := net.LookupIP(host)
+	if err == nil {
+		for _, addr := range addrs {
+			if isPrivateOrReservedIP(addr) {
+				return ErrInvalidURL
+			}
+		}
+	}
+
 	return nil
+}
+
+func isPrivateOrReservedIP(ip net.IP) bool {
+	// Normalize to IPv4 if it's an IPv4-mapped IPv6 address
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4
+	}
+
+	privateRanges := []struct {
+		network *net.IPNet
+	}{
+		{parseCIDR("127.0.0.0/8")},     // Loopback
+		{parseCIDR("10.0.0.0/8")},      // RFC 1918
+		{parseCIDR("172.16.0.0/12")},   // RFC 1918
+		{parseCIDR("192.168.0.0/16")},  // RFC 1918
+		{parseCIDR("169.254.0.0/16")},  // Link-local
+		{parseCIDR("224.0.0.0/4")},     // Multicast
+		{parseCIDR("240.0.0.0/4")},     // Reserved
+		{parseCIDR("0.0.0.0/8")},       // Current network
+		{parseCIDR("100.64.0.0/10")},   // Shared address space (CGNAT)
+		{parseCIDR("192.0.0.0/24")},    // IETF protocol assignments
+		{parseCIDR("192.0.2.0/24")},    // TEST-NET-1
+		{parseCIDR("198.51.100.0/24")}, // TEST-NET-2
+		{parseCIDR("203.0.113.0/24")},  // TEST-NET-3
+		{parseCIDR("198.18.0.0/15")},   // Benchmark testing
+		{parseCIDR("::1/128")},         // IPv6 loopback
+		{parseCIDR("fc00::/7")},        // IPv6 unique local
+		{parseCIDR("fe80::/10")},       // IPv6 link-local
+		{parseCIDR("ff00::/8")},        // IPv6 multicast
+		{parseCIDR("::/128")},          // Unspecified
+	}
+
+	for _, r := range privateRanges {
+		if r.network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func parseCIDR(cidr string) *net.IPNet {
+	_, network, err := net.ParseCIDR(cidr)
+	if err != nil {
+		panic("invalid CIDR: " + cidr)
+	}
+	return network
 }
