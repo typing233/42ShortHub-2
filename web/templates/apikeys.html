@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>API 密钥管理 - ShortHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand"><a href="/dashboard" style="color:inherit;text-decoration:none;">ShortHub</a></div>
+        <div class="nav-right">
+            <a href="/dashboard" class="btn btn-sm">我的链接</a>
+            <span>{{.Username}}</span>
+            <button class="btn btn-sm" onclick="logout()">退出</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h2>创建 API 密钥</h2>
+            <form id="createKeyForm" class="create-form">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>名称</label>
+                        <input type="text" id="keyName" placeholder="例如: 生产服务器" required>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label>每日配额</label>
+                        <input type="number" id="keyQuota" placeholder="1000" min="1">
+                    </div>
+                    <div class="form-group flex-1">
+                        <label>每分钟速率</label>
+                        <input type="number" id="keyRate" placeholder="60" min="1">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">创建密钥</button>
+            </form>
+            <div id="keyResult" class="result-box" style="display:none;"></div>
+        </div>
+
+        <div class="card">
+            <h2>我的 API 密钥</h2>
+            <table class="simple-table">
+                <thead>
+                    <tr>
+                        <th>名称</th>
+                        <th>前缀</th>
+                        <th>配额/日</th>
+                        <th>速率/分</th>
+                        <th>状态</th>
+                        <th>最后使用</th>
+                        <th>创建时间</th>
+                        <th>操作</th>
+                    </tr>
+                </thead>
+                <tbody id="keysBody"></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script src="/static/js/apikeys.js"></script>
+</body>
+</html>

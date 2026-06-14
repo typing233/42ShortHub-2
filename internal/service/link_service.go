@@ -37,14 +37,15 @@ var (
 const base62Chars = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
 
 type LinkService struct {
-	linkRepo    *repository.LinkRepo
-	cache       *cache.RedisCache
-	cfg         *config.Config
-	logChan     chan model.AccessLog
-	stopCh      chan struct{}
-	wg          sync.WaitGroup
-	dropped     int64 // atomic; total entries dropped due to full channel
-	failedFile  *os.File
+	linkRepo     *repository.LinkRepo
+	cache        *cache.RedisCache
+	cfg          *config.Config
+	analyticsSvc *AnalyticsService
+	logChan      chan model.AccessLog
+	stopCh       chan struct{}
+	wg           sync.WaitGroup
+	dropped      int64 // atomic; total entries dropped due to full channel
+	failedFile   *os.File
 }
 
 func NewLinkService(linkRepo *repository.LinkRepo, rc *cache.RedisCache, cfg *config.Config) *LinkService {
@@ -56,6 +57,10 @@ func NewLinkService(linkRepo *repository.LinkRepo, rc *cache.RedisCache, cfg *co
 		stopCh:   make(chan struct{}),
 	}
 	return svc
+}
+
+func (s *LinkService) SetAnalyticsService(analyticsSvc *AnalyticsService) {
+	s.analyticsSvc = analyticsSvc
 }
 
 func (s *LinkService) StartLogWorker(logRepo *repository.AccessLogRepo, workers int, fallbackPath string) {
@@ -122,6 +127,14 @@ func (s *LinkService) logWorker(logRepo *repository.AccessLogRepo) {
 		toWrite := make([]model.AccessLog, len(batch))
 		copy(toWrite, batch)
 		batch = batch[:0]
+
+		if s.analyticsSvc != nil {
+			for i := range toWrite {
+				s.analyticsSvc.EnrichAccessLog(&toWrite[i])
+				toWrite[i].IsUnique = s.analyticsSvc.CheckDedup(toWrite[i].ShortLinkID, toWrite[i].IP)
+				s.analyticsSvc.RecordRealtime(toWrite[i].ShortLinkID)
+			}
+		}
 
 		s.writeBatchWithRetry(logRepo, toWrite)
 	}
@@ -234,6 +247,10 @@ func (s *LinkService) IncrClick(linkID uint) {
 }
 
 func (s *LinkService) Create(userID uint, req model.CreateLinkRequest) (*model.ShortLink, error) {
+	return s.CreateWithBatchID(userID, req, nil)
+}
+
+func (s *LinkService) CreateWithBatchID(userID uint, req model.CreateLinkRequest, batchJobID *uint) (*model.ShortLink, error) {
 	if err := s.validateURL(req.URL); err != nil {
 		return nil, err
 	}
@@ -263,6 +280,7 @@ func (s *LinkService) Create(userID uint, req model.CreateLinkRequest) (*model.S
 		Title:       req.Title,
 		Status:      model.StatusActive,
 		ExpiresAt:   req.ExpiresAt,
+		BatchJobID:  batchJobID,
 	}
 
 	if err := s.linkRepo.Create(link); err != nil {

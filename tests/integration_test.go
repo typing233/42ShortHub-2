@@ -70,7 +70,8 @@ func setupTestEnv(t *testing.T) *testEnv {
 	linkSvc.StartLogWorker(accessLogRepo, 2, "")
 
 	authHandler := handler.NewAuthHandler(authSvc)
-	linkHandler := handler.NewLinkHandler(linkSvc)
+	qrSvc := service.NewQRCodeService(cfg)
+	linkHandler := handler.NewLinkHandler(linkSvc, qrSvc)
 
 	gin.SetMode(gin.TestMode)
 	r := gin.New()

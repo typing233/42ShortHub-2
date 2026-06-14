@@ -46,3 +46,9 @@ func (r *UserRepo) ExistsByEmail(email string) (bool, error) {
 	err := r.db.Model(&model.User{}).Where("email = ?", email).Count(&count).Error
 	return count > 0, err
 }
+
+func (r *UserRepo) CountAll() (int64, error) {
+	var count int64
+	err := r.db.Model(&model.User{}).Count(&count).Error
+	return count, err
+}

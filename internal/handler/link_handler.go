@@ -11,11 +11,12 @@ import (
 )
 
 type LinkHandler struct {
-	linkSvc *service.LinkService
+	linkSvc  *service.LinkService
+	qrSvc    *service.QRCodeService
 }
 
-func NewLinkHandler(linkSvc *service.LinkService) *LinkHandler {
-	return &LinkHandler{linkSvc: linkSvc}
+func NewLinkHandler(linkSvc *service.LinkService, qrSvc *service.QRCodeService) *LinkHandler {
+	return &LinkHandler{linkSvc: linkSvc, qrSvc: qrSvc}
 }
 
 func (h *LinkHandler) Create(c *gin.Context) {
@@ -172,4 +173,46 @@ func formatErrors(errs []error) []string {
 		}
 	}
 	return msgs
+}
+
+func (h *LinkHandler) QRCode(c *gin.Context) {
+	userID := c.GetUint("user_id")
+	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, model.APIResponse{Code: 400, Message: "invalid id"})
+		return
+	}
+
+	link, err := h.linkSvc.GetByID(userID, uint(id))
+	if err != nil {
+		handleLinkError(c, err)
+		return
+	}
+
+	format := c.DefaultQuery("format", "png")
+	size := 256
+	if s := c.Query("size"); s != "" {
+		if parsed, err := strconv.Atoi(s); err == nil && parsed >= 64 && parsed <= 1024 {
+			size = parsed
+		}
+	}
+
+	switch format {
+	case "svg":
+		data, err := h.qrSvc.GenerateSVG(link.ShortCode, size)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
+			return
+		}
+		c.Header("Content-Disposition", "attachment; filename=\""+link.ShortCode+".svg\"")
+		c.Data(http.StatusOK, "image/svg+xml", data)
+	default:
+		data, err := h.qrSvc.GeneratePNG(link.ShortCode, size)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, model.APIResponse{Code: 500, Message: err.Error()})
+			return
+		}
+		c.Header("Content-Disposition", "attachment; filename=\""+link.ShortCode+".png\"")
+		c.Data(http.StatusOK, "image/png", data)
+	}
 }

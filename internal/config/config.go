@@ -7,11 +7,12 @@ import (
 )
 
 type Config struct {
-	Server   ServerConfig
-	Database DatabaseConfig
-	Redis    RedisConfig
-	JWT      JWTConfig
-	App      AppConfig
+	Server    ServerConfig
+	Database  DatabaseConfig
+	Redis     RedisConfig
+	JWT       JWTConfig
+	App       AppConfig
+	Analytics AnalyticsConfig
 }
 
 type ServerConfig struct {
@@ -41,10 +42,20 @@ type JWTConfig struct {
 }
 
 type AppConfig struct {
-	BaseURL        string
-	ShortCodeLen   int
+	BaseURL         string
+	ShortCodeLen    int
 	RateLimitPerMin int
-	MaxBatchSize   int
+	MaxBatchSize    int
+	BatchWorkers    int
+	BatchQueueSize  int
+}
+
+type AnalyticsConfig struct {
+	GeoIPDBPath       string
+	DedupWindowSec    int
+	MVRefreshInterval time.Duration
+	APIKeyQuotaDaily  int64
+	APIKeyRatePerMin  int
 }
 
 func Load() *Config {
@@ -72,10 +83,19 @@ func Load() *Config {
 			ExpireHour: getEnvInt("JWT_EXPIRE_HOUR", 72),
 		},
 		App: AppConfig{
-			BaseURL:        getEnv("APP_BASE_URL", "http://localhost:8080"),
-			ShortCodeLen:   getEnvInt("SHORT_CODE_LEN", 6),
+			BaseURL:         getEnv("APP_BASE_URL", "http://localhost:8080"),
+			ShortCodeLen:    getEnvInt("SHORT_CODE_LEN", 6),
 			RateLimitPerMin: getEnvInt("RATE_LIMIT_PER_MIN", 60),
-			MaxBatchSize:   getEnvInt("MAX_BATCH_SIZE", 50),
+			MaxBatchSize:    getEnvInt("MAX_BATCH_SIZE", 50),
+			BatchWorkers:    getEnvInt("BATCH_WORKERS", 4),
+			BatchQueueSize:  getEnvInt("BATCH_QUEUE_SIZE", 100),
+		},
+		Analytics: AnalyticsConfig{
+			GeoIPDBPath:       getEnv("GEOIP_DB_PATH", ""),
+			DedupWindowSec:    getEnvInt("DEDUP_WINDOW_SECONDS", 1800),
+			MVRefreshInterval: time.Duration(getEnvInt("MV_REFRESH_MINUTES", 5)) * time.Minute,
+			APIKeyQuotaDaily:  int64(getEnvInt("API_KEY_DAILY_QUOTA", 1000)),
+			APIKeyRatePerMin:  getEnvInt("API_KEY_RATE_PER_MIN", 60),
 		},
 	}
 }

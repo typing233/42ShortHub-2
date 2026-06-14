@@ -19,10 +19,10 @@ type LoginResponse struct {
 }
 
 type CreateLinkRequest struct {
-	URL       string     `json:"url" binding:"required,url"`
-	CustomCode string    `json:"custom_code" binding:"omitempty,min=3,max=32,alphanum"`
-	Title     string     `json:"title" binding:"max=256"`
-	ExpiresAt *time.Time `json:"expires_at"`
+	URL        string     `json:"url" binding:"required,url"`
+	CustomCode string     `json:"custom_code" binding:"omitempty,min=3,max=32,alphanum"`
+	Title      string     `json:"title" binding:"max=256"`
+	ExpiresAt  *time.Time `json:"expires_at"`
 }
 
 type BatchCreateRequest struct {
@@ -53,4 +53,91 @@ type APIResponse struct {
 	Code    int         `json:"code"`
 	Message string      `json:"message"`
 	Data    interface{} `json:"data,omitempty"`
+}
+
+// --- API Key DTOs ---
+
+type CreateAPIKeyRequest struct {
+	Name       string     `json:"name" binding:"required,min=1,max=128"`
+	QuotaDaily *int64     `json:"quota_daily"`
+	RatePerMin *int       `json:"rate_per_min"`
+	ExpiresAt  *time.Time `json:"expires_at"`
+}
+
+type CreateAPIKeyResponse struct {
+	Key    string `json:"key"`
+	APIKey APIKey `json:"api_key"`
+}
+
+// --- Analytics DTOs ---
+
+type AnalyticsQuery struct {
+	From        string `form:"from"`
+	To          string `form:"to"`
+	Granularity string `form:"granularity,default=day" binding:"omitempty,oneof=hour day week"`
+	Timezone    string `form:"timezone,default=UTC"`
+}
+
+type AnalyticsSummary struct {
+	TotalClicks  int64  `json:"total_clicks"`
+	UniqueClicks int64  `json:"unique_clicks"`
+	HumanClicks  int64  `json:"human_clicks"`
+	TopCountry   string `json:"top_country"`
+	TopReferer   string `json:"top_referer"`
+}
+
+type TimeseriesPoint struct {
+	Time   string `json:"time"`
+	Clicks int64  `json:"clicks"`
+	Unique int64  `json:"unique"`
+}
+
+type BreakdownItem struct {
+	Name  string `json:"name"`
+	Count int64  `json:"count"`
+}
+
+type GeoItem struct {
+	Country string `json:"country"`
+	City    string `json:"city"`
+	Count   int64  `json:"count"`
+}
+
+// --- Batch DTOs ---
+
+type AsyncBatchRequest struct {
+	Links []CreateLinkRequest `json:"links" binding:"required,min=1"`
+}
+
+type BatchJobResponse struct {
+	JobID  uint   `json:"job_id"`
+	Status string `json:"status"`
+}
+
+type BatchJobDetail struct {
+	BatchJob
+	Results []BatchItemResult `json:"results,omitempty"`
+}
+
+type BatchItemResult struct {
+	URL       string `json:"url"`
+	ShortCode string `json:"short_code,omitempty"`
+	Success   bool   `json:"success"`
+	Error     string `json:"error,omitempty"`
+}
+
+// --- Admin DTOs ---
+
+type AdminOverview struct {
+	TotalUsers    int64 `json:"total_users"`
+	TotalLinks    int64 `json:"total_links"`
+	TotalClicks   int64 `json:"total_clicks"`
+	ActiveLinks   int64 `json:"active_links"`
+	ClicksToday   int64 `json:"clicks_today"`
+	LinksCreated7d int64 `json:"links_created_7d"`
+}
+
+type AdminTrafficQuery struct {
+	Days        int    `form:"days,default=30" binding:"min=1,max=90"`
+	Granularity string `form:"granularity,default=day" binding:"omitempty,oneof=hour day"`
 }

@@ -47,6 +47,8 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
         const shortUrl = window.location.origin + '/s/' + link.short_code;
         resultEl.innerHTML = `创建成功: <a href="${shortUrl}" target="_blank">${shortUrl}</a>`;
         resultEl.style.display = 'block';
+        resultEl.style.background = '#f0fff4';
+        resultEl.style.borderColor = '#c6f6d5';
         document.getElementById('createForm').reset();
         loadLinks();
     } else {
@@ -56,6 +58,55 @@ document.getElementById('createForm').addEventListener('submit', async (e) => {
         resultEl.style.borderColor = '#fed7d7';
     }
 });
+
+// CSV batch upload
+document.getElementById('csvForm').addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const resultEl = document.getElementById('batchResult');
+    const fileInput = document.getElementById('csvFile');
+    const file = fileInput.files[0];
+    if (!file) return;
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    const resp = await fetch(API + '/links/batch/csv', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + getToken() },
+        body: formData
+    });
+
+    const data = await resp.json();
+    if (resp.ok || resp.status === 202) {
+        resultEl.innerHTML = `批量任务已提交！任务ID: ${data.data.job_id}，状态: ${data.data.status}。<br>
+            <button class="btn btn-sm" onclick="pollBatchJob(${data.data.job_id})">查看进度</button>`;
+        resultEl.style.display = 'block';
+        resultEl.style.background = '#f0fff4';
+        resultEl.style.borderColor = '#c6f6d5';
+        fileInput.value = '';
+    } else {
+        resultEl.innerHTML = `<span style="color:#e53e3e">${data.message}</span>`;
+        resultEl.style.display = 'block';
+        resultEl.style.background = '#fff5f5';
+        resultEl.style.borderColor = '#fed7d7';
+    }
+});
+
+async function pollBatchJob(jobId) {
+    const resultEl = document.getElementById('batchResult');
+    const resp = await apiFetch(`/batch-jobs/${jobId}`);
+    if (!resp) return;
+    const data = await resp.json();
+    const job = data.data;
+
+    resultEl.innerHTML = `任务 #${job.id}: ${job.status} — 已处理 ${job.processed_items}/${job.total_items}，成功 ${job.success_count}，失败 ${job.fail_count}`;
+
+    if (job.status === 'pending' || job.status === 'running') {
+        setTimeout(() => pollBatchJob(jobId), 2000);
+    } else {
+        loadLinks();
+    }
+}
 
 async function loadLinks() {
     const keyword = document.getElementById('searchInput').value.trim();
@@ -95,7 +146,9 @@ async function loadLinks() {
                 <td>${statusBadge}</td>
                 <td>${link.click_count}</td>
                 <td>${createdAt}</td>
-                <td>
+                <td class="action-btns">
+                    <a href="/dashboard/links/${link.id}/analytics" class="btn btn-sm">统计</a>
+                    <button class="btn btn-sm" onclick="showQR(${link.id},'${link.short_code}')">QR</button>
                     <button class="btn btn-sm" onclick="editLink(${link.id},'${escHtml(link.title)}','${link.status}','${link.expires_at || ''}')">编辑</button>
                     <button class="btn btn-sm btn-danger" onclick="deleteLink(${link.id})">删除</button>
                 </td>
@@ -172,6 +225,44 @@ async function deleteLink(id) {
         const data = await resp.json();
         alert(data.message);
     }
+}
+
+function showQR(linkId, shortCode) {
+    const imgEl = document.getElementById('qrImage');
+    const pngUrl = `${API}/links/${linkId}/qrcode?format=png&size=256`;
+    imgEl.src = pngUrl;
+    imgEl.onerror = () => {
+        // If direct fetch fails (auth needed), fetch via API
+        fetch(pngUrl, { headers: authHeaders() })
+            .then(r => r.blob())
+            .then(blob => { imgEl.src = URL.createObjectURL(blob); });
+    };
+
+    // Fetch as blob for download links
+    fetch(pngUrl, { headers: authHeaders() })
+        .then(r => r.blob())
+        .then(blob => {
+            const url = URL.createObjectURL(blob);
+            imgEl.src = url;
+            const dlPNG = document.getElementById('qrDownloadPNG');
+            dlPNG.href = url;
+            dlPNG.download = shortCode + '.png';
+        });
+
+    const svgUrl = `${API}/links/${linkId}/qrcode?format=svg&size=256`;
+    fetch(svgUrl, { headers: authHeaders() })
+        .then(r => r.blob())
+        .then(blob => {
+            const dlSVG = document.getElementById('qrDownloadSVG');
+            dlSVG.href = URL.createObjectURL(blob);
+            dlSVG.download = shortCode + '.svg';
+        });
+
+    document.getElementById('qrModal').style.display = 'flex';
+}
+
+function closeQRModal() {
+    document.getElementById('qrModal').style.display = 'none';
 }
 
 function logout() {

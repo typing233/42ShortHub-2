@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>链接分析 - ShortHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand"><a href="/dashboard" style="color:inherit;text-decoration:none;">ShortHub</a></div>
+        <div class="nav-right">
+            <a href="/dashboard" class="btn btn-sm">我的链接</a>
+            <span>{{.Username}}</span>
+            <button class="btn btn-sm" onclick="logout()">退出</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <div class="card-header">
+                <h2>链接统计分析</h2>
+                <div class="controls">
+                    <select id="timeRange" onchange="loadAll()">
+                        <option value="7">最近 7 天</option>
+                        <option value="30">最近 30 天</option>
+                        <option value="90">最近 90 天</option>
+                    </select>
+                    <select id="granularity" onchange="loadTimeseries()">
+                        <option value="day">按天</option>
+                        <option value="hour">按小时</option>
+                        <option value="week">按周</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalClicks">-</div>
+                    <div class="stat-label">总点击</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="uniqueClicks">-</div>
+                    <div class="stat-label">独立访客</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="humanClicks">-</div>
+                    <div class="stat-label">人类点击</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="realtimeClicks">-</div>
+                    <div class="stat-label">实时 (5分钟)</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>点击趋势</h3>
+            <canvas id="timeseriesChart" height="80"></canvas>
+        </div>
+
+        <div class="charts-row">
+            <div class="card half">
+                <h3>设备分布</h3>
+                <canvas id="deviceChart" height="120"></canvas>
+            </div>
+            <div class="card half">
+                <h3>浏览器分布</h3>
+                <canvas id="browserChart" height="120"></canvas>
+            </div>
+        </div>
+
+        <div class="charts-row">
+            <div class="card half">
+                <h3>来源 (Referer)</h3>
+                <div id="refererList" class="breakdown-list"></div>
+            </div>
+            <div class="card half">
+                <h3>地理分布</h3>
+                <div id="geoList" class="breakdown-list"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const LINK_ID = '{{.LinkID}}';
+    </script>
+    <script src="/static/js/analytics.js"></script>
+</body>
+</html>

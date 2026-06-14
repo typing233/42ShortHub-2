@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理后台 - ShortHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand"><a href="/dashboard" style="color:inherit;text-decoration:none;">ShortHub</a></div>
+        <div class="nav-right">
+            <a href="/dashboard" class="btn btn-sm">我的链接</a>
+            <span>{{.Username}}</span>
+            <button class="btn btn-sm" onclick="logout()">退出</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h2>全局概览</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalUsers">-</div>
+                    <div class="stat-label">注册用户</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalLinks">-</div>
+                    <div class="stat-label">短链接总数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="activeLinks">-</div>
+                    <div class="stat-label">活跃链接</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="clicksToday">-</div>
+                    <div class="stat-label">今日点击</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="card">
+            <h3>流量趋势 (30天)</h3>
+            <canvas id="trafficChart" height="80"></canvas>
+        </div>
+
+        <div class="charts-row">
+            <div class="card half">
+                <h3>热门链接 Top 10</h3>
+                <table class="simple-table">
+                    <thead><tr><th>短码</th><th>URL</th><th>点击</th></tr></thead>
+                    <tbody id="topLinksBody"></tbody>
+                </table>
+            </div>
+            <div class="card half">
+                <h3>最近审计日志</h3>
+                <table class="simple-table">
+                    <thead><tr><th>时间</th><th>用户</th><th>操作</th><th>IP</th></tr></thead>
+                    <tbody id="auditBody"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="/static/js/admin.js"></script>
+</body>
+</html>

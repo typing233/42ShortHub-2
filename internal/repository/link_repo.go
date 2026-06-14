@@ -1,6 +1,8 @@
 package repository
 
 import (
+	"time"
+
 	"github.com/42ShortHub/shortlink/internal/model"
 	"gorm.io/gorm"
 )
@@ -79,4 +81,43 @@ func (r *LinkRepo) ShortCodeExists(code string) (bool, error) {
 func (r *LinkRepo) IncrClickCount(id uint) error {
 	return r.db.Model(&model.ShortLink{}).Where("id = ?", id).
 		UpdateColumn("click_count", gorm.Expr("click_count + 1")).Error
+}
+
+func (r *LinkRepo) FindByUserAndURL(userID uint, originalURL string) (*model.ShortLink, error) {
+	var link model.ShortLink
+	err := r.db.Where("user_id = ? AND original_url = ?", userID, originalURL).First(&link).Error
+	if err != nil {
+		return nil, err
+	}
+	return &link, nil
+}
+
+func (r *LinkRepo) CountByUser(userID uint) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.ShortLink{}).Where("user_id = ?", userID).Count(&count).Error
+	return count, err
+}
+
+func (r *LinkRepo) CountAll() (int64, error) {
+	var count int64
+	err := r.db.Model(&model.ShortLink{}).Count(&count).Error
+	return count, err
+}
+
+func (r *LinkRepo) CountByStatus(status string) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.ShortLink{}).Where("status = ?", status).Count(&count).Error
+	return count, err
+}
+
+func (r *LinkRepo) CountCreatedSince(t time.Time) (int64, error) {
+	var count int64
+	err := r.db.Model(&model.ShortLink{}).Where("created_at >= ?", t).Count(&count).Error
+	return count, err
+}
+
+func (r *LinkRepo) TopByClicks(limit int) ([]model.ShortLink, error) {
+	var links []model.ShortLink
+	err := r.db.Order("click_count DESC").Limit(limit).Find(&links).Error
+	return links, err
 }

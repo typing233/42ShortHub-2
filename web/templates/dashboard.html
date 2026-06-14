@@ -10,6 +10,8 @@
     <nav class="navbar">
         <div class="nav-brand">ShortHub</div>
         <div class="nav-right">
+            <a href="/dashboard/api-keys" class="btn btn-sm">API 密钥</a>
+            <a href="/dashboard/admin" class="btn btn-sm">管理后台</a>
             <span id="usernameDisplay">{{.Username}}</span>
             <button class="btn btn-sm" onclick="logout()">退出</button>
         </div>
@@ -42,6 +44,22 @@
                 <button type="submit" class="btn btn-primary">创建</button>
             </form>
             <div id="createResult" class="result-box" style="display:none;"></div>
+        </div>
+
+        <div class="card">
+            <h2>批量导入 (CSV)</h2>
+            <form id="csvForm" class="create-form">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>CSV 文件 (列: url, custom_code, title, expires_at)</label>
+                        <input type="file" id="csvFile" accept=".csv" required>
+                    </div>
+                    <div class="form-group" style="align-self:flex-end;">
+                        <button type="submit" class="btn btn-primary">上传</button>
+                    </div>
+                </div>
+            </form>
+            <div id="batchResult" class="result-box" style="display:none;"></div>
         </div>
 
         <div class="card">
@@ -102,6 +120,18 @@
                     <button type="button" class="btn" onclick="closeModal()">取消</button>
                 </div>
             </form>
+        </div>
+    </div>
+
+    <div id="qrModal" class="modal" style="display:none;">
+        <div class="modal-content card" style="text-align:center;">
+            <h3>二维码</h3>
+            <img id="qrImage" style="max-width:256px;margin:1rem auto;display:block;">
+            <div class="form-actions" style="justify-content:center;">
+                <a id="qrDownloadPNG" class="btn btn-primary" download>下载 PNG</a>
+                <a id="qrDownloadSVG" class="btn" download>下载 SVG</a>
+                <button type="button" class="btn" onclick="closeQRModal()">关闭</button>
+            </div>
         </div>
     </div>
 
