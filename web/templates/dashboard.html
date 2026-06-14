@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>管理面板 - ShortHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-brand">ShortHub</div>
+        <div class="nav-right">
+            <span id="usernameDisplay">{{.Username}}</span>
+            <button class="btn btn-sm" onclick="logout()">退出</button>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="card">
+            <h2>创建短链接</h2>
+            <form id="createForm" class="create-form">
+                <div class="form-row">
+                    <div class="form-group flex-2">
+                        <label>原始 URL</label>
+                        <input type="url" id="createUrl" placeholder="https://example.com/very-long-url" required>
+                    </div>
+                    <div class="form-group flex-1">
+                        <label>自定义短码（可选）</label>
+                        <input type="text" id="createCode" placeholder="my-code" minlength="3" maxlength="32">
+                    </div>
+                </div>
+                <div class="form-row">
+                    <div class="form-group flex-1">
+                        <label>标题（可选）</label>
+                        <input type="text" id="createTitle" placeholder="链接标题" maxlength="256">
+                    </div>
+                    <div class="form-group flex-1">
+                        <label>过期时间（可选）</label>
+                        <input type="datetime-local" id="createExpires">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">创建</button>
+            </form>
+            <div id="createResult" class="result-box" style="display:none;"></div>
+        </div>
+
+        <div class="card">
+            <div class="card-header">
+                <h2>我的短链接</h2>
+                <div class="search-bar">
+                    <input type="text" id="searchInput" placeholder="搜索短码/URL/标题...">
+                    <select id="statusFilter">
+                        <option value="">全部状态</option>
+                        <option value="active">启用</option>
+                        <option value="inactive">停用</option>
+                    </select>
+                    <button class="btn btn-sm" onclick="loadLinks()">搜索</button>
+                </div>
+            </div>
+            <div class="table-wrap">
+                <table id="linksTable">
+                    <thead>
+                        <tr>
+                            <th>短码</th>
+                            <th>原始 URL</th>
+                            <th>标题</th>
+                            <th>状态</th>
+                            <th>点击</th>
+                            <th>创建时间</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="linksBody"></tbody>
+                </table>
+            </div>
+            <div class="pagination" id="pagination"></div>
+        </div>
+    </div>
+
+    <div id="editModal" class="modal" style="display:none;">
+        <div class="modal-content card">
+            <h3>编辑短链接</h3>
+            <form id="editForm">
+                <input type="hidden" id="editId">
+                <div class="form-group">
+                    <label>标题</label>
+                    <input type="text" id="editTitle">
+                </div>
+                <div class="form-group">
+                    <label>状态</label>
+                    <select id="editStatus">
+                        <option value="active">启用</option>
+                        <option value="inactive">停用</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>过期时间</label>
+                    <input type="datetime-local" id="editExpires">
+                </div>
+                <div class="form-actions">
+                    <button type="submit" class="btn btn-primary">保存</button>
+                    <button type="button" class="btn" onclick="closeModal()">取消</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="/static/js/dashboard.js"></script>
+</body>
+</html>

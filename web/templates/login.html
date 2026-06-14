@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录 - ShortHub</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container auth-container">
+        <div class="card">
+            <h1>ShortHub</h1>
+            <h2>登录</h2>
+            <form id="loginForm">
+                <div class="form-group">
+                    <label for="username">用户名</label>
+                    <input type="text" id="username" name="username" required>
+                </div>
+                <div class="form-group">
+                    <label for="password">密码</label>
+                    <input type="password" id="password" name="password" required>
+                </div>
+                <div class="form-group">
+                    <button type="submit" class="btn btn-primary btn-block">登录</button>
+                </div>
+                <div id="error" class="error-msg"></div>
+            </form>
+            <p class="text-center">还没有账号？<a href="/register">注册</a></p>
+        </div>
+    </div>
+    <script>
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const errEl = document.getElementById('error');
+            errEl.textContent = '';
+            const resp = await fetch('/api/v1/auth/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    username: document.getElementById('username').value,
+                    password: document.getElementById('password').value
+                })
+            });
+            const data = await resp.json();
+            if (resp.ok) {
+                localStorage.setItem('token', data.data.token);
+                window.location.href = '/dashboard';
+            } else {
+                errEl.textContent = data.message;
+            }
+        });
+    </script>
+</body>
+</html>
